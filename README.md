@@ -13,9 +13,9 @@ Evrensel metin genişletici kullanıcı betiğidir. Tüm sitelerde yazdığını
 
 | Kısaltma | Çıktı                 |
 | -------- | --------------------- |
-| "1       | Owo h                 |
-| "2       | Owo b                 |
-| "3       | Owo                   |
+| slm      | Selam                 |
+| nbr      | Naber?                |
+| mail     | example.mail.com      |
 | :cp      | Kopyalanan: {{clipb}} |
 | :time    | {{time}}              |
 | :date    | {{date}}              |
