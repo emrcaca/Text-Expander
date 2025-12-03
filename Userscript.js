@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         EmR Text Expander Minimal
+// @name         EmR Text Expander
 // @namespace    http://tampermonkey.net/
 // @version      1.0
 // @description  Kısayol genişletici
