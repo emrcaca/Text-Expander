@@ -1,7 +1,3 @@
-Aşağıda doğrudan kullanabileceğiniz kısa ve net bir README.md bulunmaktadır.
-
----
-
 # EmR Text Expander
 
 Evrensel metin genişletici kullanıcı betiğidir. Tüm sitelerde yazdığınız belirli kısaltmaları otomatik olarak genişleterek hızlı yazım sağlar.
