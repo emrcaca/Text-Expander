@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         EmR Text Expander
+// @name         EmR Text Expander Minimal
 // @namespace    http://tampermonkey.net/
 // @version      1.0
-// @description  Evrensel metin genişletici
+// @description  Sadece "1, "2 ve "3 kısayollarını genişletir
 // @match        *://*/*
 // @grant        none
 // ==/UserScript==
@@ -11,19 +11,9 @@
     "use strict";
 
     const EXPANSIONS = {
-        'slm': "Selam!",
-        'nbr': "Naber?",
-        ':mail': "example.mail.com",
-        ':cp': 'Kopyalanan: {{clipb}}',
-        ':time': '{{time}}',
-        ':date': '{{date}}',
-        ':ip': '{{ip}}'
+        ':hi': "Hello!",
+        ':mail': "example@mail.com",
     };
-
-    const EXPANSION_KEYS = new Set(Object.keys(EXPANSIONS));
-
-    const getSelection = window.getSelection.bind(window);
-    const createRange = document.createRange.bind(document);
 
     function getText(el) {
         return el.isContentEditable ? el.textContent : el.value;
@@ -40,8 +30,8 @@
     }
 
     function setContentEditable(el, text) {
-        const sel = getSelection();
-        const fullRange = createRange();
+        const sel = window.getSelection();
+        const fullRange = document.createRange();
         fullRange.selectNodeContents(el);
 
         sel.removeAllRanges();
@@ -61,7 +51,7 @@
             el.textContent = text;
         }
 
-        const endRange = createRange();
+        const endRange = document.createRange();
         endRange.selectNodeContents(el);
         endRange.collapse(false);
 
@@ -69,22 +59,39 @@
         sel.addRange(endRange);
     }
 
+    function findMatchingShortcut(text) {
+        const keys = Object.keys(EXPANSIONS);
+        const maxLen = Math.max(...keys.map(k => k.length));
+        for (let len = maxLen; len >= 2; len--) {
+            const ending = text.slice(-len);
+            if (EXPANSIONS[ending]) {
+                return { key: ending, length: len };
+            }
+        }
+        return null;
+    }
+
     function expand() {
         const el = document.activeElement;
-        if (!el || (!el.isContentEditable && el.value === undefined)) return;
+        if (!el) return;
+
+        const isEditable = el.isContentEditable;
+        const hasValue = el.value !== undefined;
+        if (!isEditable && !hasValue) return;
 
         const text = getText(el);
-        if (!text || text.length < 2) return;
+        if (!text) return;
 
-        const key = text.slice(-2);
-        if (!EXPANSION_KEYS.has(key)) return;
+        const match = findMatchingShortcut(text);
+        if (!match) return;
 
-        const expanded = text.slice(0, -2) + EXPANSIONS[key];
+        const expanded = EXPANSIONS[match.key];
+        const newText = text.slice(0, -match.length) + expanded;
 
-        if (el.isContentEditable) {
-            setContentEditable(el, expanded);
-        } else {
-            setTextInputElement(el, expanded);
+        if (isEditable) {
+            setContentEditable(el, newText);
+        } else if (hasValue) {
+            setTextInputElement(el, newText);
         }
     }
 
