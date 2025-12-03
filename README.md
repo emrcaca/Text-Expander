@@ -39,7 +39,3 @@ Evrensel metin genişletici kullanıcı betiğidir. Tüm sitelerde yazdığını
 ## Lisans
 
 MIT Lisansı
-
----
-
-Dilersen bu README’ye görseller, örnek kullanım ya da sürüm notları da ekleyebilirim.
