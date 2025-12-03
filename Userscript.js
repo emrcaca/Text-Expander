@@ -2,7 +2,7 @@
 // @name         EmR Text Expander Minimal
 // @namespace    http://tampermonkey.net/
 // @version      1.0
-// @description  Sadece "1, "2 ve "3 kısayollarını genişletir
+// @description  Kısayol genişletici
 // @match        *://*/*
 // @grant        none
 // ==/UserScript==
