@@ -15,7 +15,7 @@ Evrensel metin genişletici kullanıcı betiğidir. Tüm sitelerde yazdığını
 | -------- | --------------------- |
 | slm      | Selam                 |
 | nbr      | Naber?                |
-| mail     | example.mail.com      |
+| :mail    | example.mail.com      |
 | :cp      | Kopyalanan: {{clipb}} |
 | :time    | {{time}}              |
 | :date    | {{date}}              |
