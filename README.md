@@ -13,7 +13,7 @@ Evrensel metin genişletici kullanıcı betiğidir. Tüm sitelerde yazdığını
 
 | Kısaltma | Çıktı                 |
 | -------- | --------------------- |
-| slm      | Selam                 |
+| slm      | Selam!                |
 | nbr      | Naber?                |
 | :mail    | example@mail.com      |
 
