@@ -1,7 +1,7 @@
-copyi buna ekle: // ==UserScript==
+// ==UserScript==
 // @name         EmR Text Expander
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.3
 // @description  Evrensel metin genişletici
 // @match        *://*/*
 // @grant        none
@@ -10,7 +10,7 @@ copyi buna ekle: // ==UserScript==
 (function () {
     "use strict";
 
-    const EXPANSIONS = {
+    const EXP = {
         '"1': "Owo h",
         '"2': "Owo b",
         '"3': "Owo"
@@ -20,23 +20,22 @@ copyi buna ekle: // ==UserScript==
         return el.isContentEditable ? el.textContent : el.value;
     }
 
-    function setTextInputElement(el, text) {
+    function setTextInputElement(el, txt) {
         const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value")?.set;
-        if (setter) setter.call(el, text);
-        else el.value = text;
+        setter ? setter.call(el, txt) : el.value = txt;
 
         el.dispatchEvent(new Event("input", { bubbles: true }));
-        el._valueTracker?.setValue(text);
-        el.setSelectionRange?.(text.length, text.length);
+        el._valueTracker?.setValue(txt);
+        el.setSelectionRange?.(txt.length, txt.length);
     }
 
-    function setContentEditable(el, text) {
+    function setContentEditable(el, txt) {
         const sel = window.getSelection();
-        const fullRange = document.createRange();
-        fullRange.selectNodeContents(el);
+        const range = document.createRange();
+        range.selectNodeContents(el);
 
         sel.removeAllRanges();
-        sel.addRange(fullRange);
+        sel.addRange(range);
 
         try {
             el.dispatchEvent(new InputEvent("beforeinput", { inputType: "deleteContent", bubbles: true, cancelable: true }));
@@ -46,38 +45,36 @@ copyi buna ekle: // ==UserScript==
         }
 
         try {
-            el.dispatchEvent(new InputEvent("beforeinput", { inputType: "insertText", data: text, bubbles: true, cancelable: true }));
-            el.dispatchEvent(new InputEvent("input", { inputType: "insertText", data: text, bubbles: true }));
+            el.dispatchEvent(new InputEvent("beforeinput", { inputType: "insertText", data: txt, bubbles: true, cancelable: true }));
+            el.dispatchEvent(new InputEvent("input", { inputType: "insertText", data: txt, bubbles: true }));
         } catch {
-            el.textContent = text;
+            el.textContent = txt;
         }
 
-        const endRange = document.createRange();
-        endRange.selectNodeContents(el);
-        endRange.collapse(false);
-
+        const end = document.createRange();
+        end.selectNodeContents(el);
+        end.collapse(false);
         sel.removeAllRanges();
-        sel.addRange(endRange);
+        sel.addRange(end);
     }
 
     function expand() {
         const el = document.activeElement;
         if (!el) return;
 
-        const text = getText(el);
-        if (!text) return;
+        const t = getText(el);
+        const k = t.slice(-2);
+        if (!EXP[k]) return;
 
-        const key = text.slice(-2);
-        if (!(key in EXPANSIONS)) return;
+        const out = t.slice(0, -2) + EXP[k];
 
-        const expanded = text.slice(0, -2) + EXPANSIONS[key];
-
-        if (el.isContentEditable) {
-            setContentEditable(el, expanded);
-        } else if (el.value !== undefined) {
-            setTextInputElement(el, expanded);
-        }
+        if (el.isContentEditable) setContentEditable(el, out);
+        else if (el.value !== undefined) setTextInputElement(el, out);
     }
 
-    document.addEventListener("keyup", expand, { passive: true });
+    document.addEventListener("keydown", e => {
+        if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key.length === 1) {
+            setTimeout(expand, 0);
+        }
+    }, { passive: true });
 })();
