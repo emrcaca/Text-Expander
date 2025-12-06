@@ -1,8 +1,8 @@
-// ==UserScript==
+copyi buna ekle: // ==UserScript==
 // @name         EmR Text Expander
 // @namespace    http://tampermonkey.net/
 // @version      1.0
-// @description  Kısayol genişletici
+// @description  Evrensel metin genişletici
 // @match        *://*/*
 // @grant        none
 // ==/UserScript==
@@ -11,8 +11,9 @@
     "use strict";
 
     const EXPANSIONS = {
-        ':hi': "Hello!",
-        ':mail': "example@mail.com",
+        '"1': "Owo h",
+        '"2': "Owo b",
+        '"3': "Owo"
     };
 
     function getText(el) {
@@ -59,39 +60,22 @@
         sel.addRange(endRange);
     }
 
-    function findMatchingShortcut(text) {
-        const keys = Object.keys(EXPANSIONS);
-        const maxLen = Math.max(...keys.map(k => k.length));
-        for (let len = maxLen; len >= 2; len--) {
-            const ending = text.slice(-len);
-            if (EXPANSIONS[ending]) {
-                return { key: ending, length: len };
-            }
-        }
-        return null;
-    }
-
     function expand() {
         const el = document.activeElement;
         if (!el) return;
 
-        const isEditable = el.isContentEditable;
-        const hasValue = el.value !== undefined;
-        if (!isEditable && !hasValue) return;
-
         const text = getText(el);
         if (!text) return;
 
-        const match = findMatchingShortcut(text);
-        if (!match) return;
+        const key = text.slice(-2);
+        if (!(key in EXPANSIONS)) return;
 
-        const expanded = EXPANSIONS[match.key];
-        const newText = text.slice(0, -match.length) + expanded;
+        const expanded = text.slice(0, -2) + EXPANSIONS[key];
 
-        if (isEditable) {
-            setContentEditable(el, newText);
-        } else if (hasValue) {
-            setTextInputElement(el, newText);
+        if (el.isContentEditable) {
+            setContentEditable(el, expanded);
+        } else if (el.value !== undefined) {
+            setTextInputElement(el, expanded);
         }
     }
 
