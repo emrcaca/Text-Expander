@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EmR Text Expander
 // @namespace    http://tampermonkey.net/
-// @version      1.3
-// @description  Evrensel metin genişletici
+// @version      1.0.1
+// @description  Metin girişlerinde ve düzenlenebilir içerik alanlarında kısa metin kodlarını daha uzun ifadelere genişletir.
 // @match        *://*/*
 // @grant        none
 // ==/UserScript==
