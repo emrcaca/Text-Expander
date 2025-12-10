@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Text Expander
-// @namespace    http://tampermonkey.net/
+// @namespace    https://github.com/emrcaca
 // @version      1.0
 // @description  Instant text expansion tool with triggers and replacement
 // @author       You
