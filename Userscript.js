@@ -2,7 +2,7 @@
 // @name         Text Expander
 // @namespace    http://tampermonkey.net/
 // @version      1.0
-// @description  Her tuşa basıldığında anında trigger-replace
+// @description  Instant text expansion tool with triggers and replacement
 // @author       You
 // @match        *://*/*
 // @grant        none
