@@ -68,3 +68,11 @@ Yeni kısaltmalar eklemek için:
 ## Lisans
 
 MIT Lisansı
+
+---
+
+<div align="center">
+
+⭐ Bu projeyi begendiniz mi? Yildiz vermeyi unutmayin!
+
+</div>
