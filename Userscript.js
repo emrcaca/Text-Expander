@@ -1,244 +1,442 @@
 // ==UserScript==
 // @name         Text Expander
 // @namespace    https://github.com/emrcaca
-// @version      1.0
-// @description  Instant text expansion tool with triggers and replacement
-// @author       You
+// @version      1.0.0
+// @description  Basit metin genişletici.
+// @author       emrcaca
 // @match        *://*/*
-// @grant        none
 // @run-at       document-idle
 // ==/UserScript==
 
-/**
- *          ___ _ __ ___  _ __ ___ __ _  ___ __ _
- *         / _ \ '_ ` _ \| '__/ __/ _` |/ __/ _` |
- *        |  __/ | | | | | | | (_| (_| | (_| (_| |
- *         \___|_| |_| |_|_|  \___\__,_|\___\__,_|
- *
- *                    Text-Expander-Mini
- *
- *    GitHub: https://github.com/emrcaca/Text-Expander
- *    Copyright (c) 2025 emrcaca | MIT License
- */
-
-(function() {
+(function () {
     'use strict';
 
-    class UniversalTextSetter {
-        static getText(element) {
-            if (!element) return '';
-            return element.isContentEditable ? (element.textContent || '') : (element.value || '');
-        }
+    /* ═══════════════════════════════════════════════════════════════════════════
+       CONSTANTS & CONFIG
+       ═══════════════════════════════════════════════════════════════════════════ */
 
-        static setText(element, text) {
-            if (!element) return;
-            const textStr = String(text);
-            if (element.isContentEditable) {
-                this.setContentEditable(element, textStr);
-            } else {
-                this.setInputValue(element, textStr);
+    const CONSTANTS = Object.freeze({
+        STORAGE_KEY: 'te_config',
+        TIMING: {
+            SELECTION_DEBOUNCE: 200,
+            CLICK_THRESHOLD: 250,
+        },
+        EDITABLE_INPUT_TYPES: Object.freeze(
+            new Set(['text', 'search', 'email', 'url', 'tel', 'password', 'number'])
+        ),
+    });
+
+    const DEFAULT_CONFIG = Object.freeze({
+        triggers: Object.freeze({
+            '"1': "Owo h",
+            '"2': "Owo b",
+            '"3': "Owo",
+            '"4': "Owo pray",
+            '"5': "Owo pray 1349602152976355379",
+            'date': new Date().toLocaleDateString('tr-TR'),
+        }),
+        expander: Object.freeze({
+            enabled: true,
+        }),
+    });
+
+    /* ═══════════════════════════════════════════════════════════════════════════
+       CONFIGURATION MANAGER (Minimal)
+       ═══════════════════════════════════════════════════════════════════════════ */
+
+    const ConfigManager = (() => {
+        let config = null;
+        let triggerKeys = [];
+
+        const deepClone = (obj) => JSON.parse(JSON.stringify(obj));
+        const sortKeysByLength = (obj) =>
+            Object.keys(obj || {}).sort((a, b) => b.length - a.length);
+
+        const updateKeys = () => {
+            triggerKeys = sortKeysByLength(config.triggers);
+        };
+
+        const load = () => {
+            config = deepClone(DEFAULT_CONFIG);
+            updateKeys();
+        };
+
+        const get = (path) => {
+            if (!path) return config;
+            return path.split('.').reduce((obj, key) => obj?.[key], config);
+        };
+
+        const getTriggerKeys = () => triggerKeys;
+
+        load(); // Initialize
+
+        return Object.freeze({ get, getTriggerKeys });
+    })();
+
+    /* ═══════════════════════════════════════════════════════════════════════════
+       ORIGINAL DOM UTILITIES (ORİJİNAL KODLAR - DOKUNULMADI)
+       ═══════════════════════════════════════════════════════════════════════════ */
+
+    const DOMUtils = (() => {
+        const inputSetter = Object.getOwnPropertyDescriptor(
+            HTMLInputElement.prototype,
+            'value'
+        )?.set;
+        const textareaSetter = Object.getOwnPropertyDescriptor(
+            HTMLTextAreaElement.prototype,
+            'value'
+        )?.set;
+
+        const isEditable = (el) => {
+            if (!el || el.disabled || el.readOnly) return false;
+            if (el.isContentEditable) return true;
+            if (el.tagName === 'TEXTAREA') return true;
+            if (el.tagName === 'INPUT') {
+                const type = (el.type || 'text').toLowerCase();
+                return CONSTANTS.EDITABLE_INPUT_TYPES.has(type);
             }
-        }
+            return el.getAttribute?.('contenteditable') === 'true';
+        };
 
-        static setInputValue(element, text) {
-            const tagName = element.tagName;
-            const prototype = tagName === 'TEXTAREA'
-                ? HTMLTextAreaElement.prototype
-                : HTMLInputElement.prototype;
+        const getActiveEditable = () => {
+            const el = document.activeElement;
+            return isEditable(el) ? el : null;
+        };
 
-            const nativeSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
-            if (nativeSetter) {
-                nativeSetter.call(element, text);
+        const getText = (el) => {
+            if (!el) return '';
+            return el.isContentEditable ? (el.textContent ?? '') : (el.value ?? '');
+        };
+
+        const moveCursorToEnd = (el) => {
+            requestAnimationFrame(() => {
+                try {
+                    const sel = window.getSelection();
+                    if (!sel) return;
+                    sel.removeAllRanges();
+                    const range = document.createRange();
+                    range.selectNodeContents(el);
+                    range.collapse(false);
+                    sel.addRange(range);
+                } catch (e) {
+                    // Ignore cursor errors
+                }
+            });
+        };
+
+        const setInputText = (el, text) => {
+            const setter = el.tagName === 'TEXTAREA' ? textareaSetter : inputSetter;
+
+            if (setter) {
+                setter.call(el, text);
             } else {
-                element.value = text;
+                el.value = text;
             }
 
-            element._valueTracker?.setValue(text);
-            element.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
-            element.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+            const tracker = el._valueTracker;
+            if (tracker) {
+                tracker.setValue('');
+            }
+
+            el.dispatchEvent(new InputEvent('input', {
+                bubbles: true,
+                cancelable: true,
+                inputType: 'insertText',
+                data: text
+            }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
 
             try {
-                element.setSelectionRange?.(text.length, text.length);
-            } catch {}
-        }
+                el.setSelectionRange?.(text.length, text.length);
+            } catch (e) {
+                // Ignore selection errors
+            }
+        };
 
-        static setContentEditable(element, text) {
-            element.focus();
-            const selection = window.getSelection();
+        const setContentEditableText = (el, text) => {
+            el.focus();
+            const sel = window.getSelection?.();
             const range = document.createRange();
 
             try {
-                range.selectNodeContents(element);
-                selection.removeAllRanges();
-                selection.addRange(range);
+                range.selectNodeContents(el);
+                sel?.removeAllRanges();
+                sel?.addRange(range);
 
                 const beforeInputEvent = new InputEvent('beforeinput', {
                     inputType: 'insertText',
                     data: text,
                     bubbles: true,
-                    cancelable: true
+                    cancelable: true,
                 });
 
-                if (!element.dispatchEvent(beforeInputEvent)) return;
+                if (!el.dispatchEvent(beforeInputEvent)) return;
 
-                element.textContent = text;
-
-                element.dispatchEvent(new InputEvent('input', {
-                    inputType: 'insertText',
-                    data: text,
-                    bubbles: true
-                }));
-
-                range.selectNodeContents(element);
-                range.collapse(false);
-                selection.removeAllRanges();
-                selection.addRange(range);
+                el.textContent = text;
+                el.dispatchEvent(
+                    new InputEvent('input', {
+                        inputType: 'insertText',
+                        data: text,
+                        bubbles: true,
+                    })
+                );
+                moveCursorToEnd(el);
                 return;
-            } catch (e) {}
+            } catch (e) {
+                // Fall through
+            }
 
             try {
-                range.selectNodeContents(element);
-                selection.removeAllRanges();
-                selection.addRange(range);
-                if (document.execCommand('selectAll', false, null)) {
+                range.selectNodeContents(el);
+                sel?.removeAllRanges();
+                sel?.addRange(range);
+                if (document.execCommand?.('selectAll')) {
                     document.execCommand('insertText', false, text);
+                    moveCursorToEnd(el);
                     return;
                 }
-            } catch (e) {}
-
-            element.textContent = text;
-            try {
-                range.selectNodeContents(element);
-                range.collapse(false);
-                selection.removeAllRanges();
-                selection.addRange(range);
-            } catch {}
-        }
-
-        static isEditable(element) {
-            if (!element) return false;
-            return element.tagName === 'INPUT' ||
-                   element.tagName === 'TEXTAREA' ||
-                   element.isContentEditable ||
-                   element.getAttribute('contenteditable') === 'true';
-        }
-
-        static getActiveEditableElement() {
-            const activeElement = document.activeElement;
-            return this.isEditable(activeElement) ? activeElement : null;
-        }
-    }
-
-    const TRIGGERS = [
-        { trigger: 'hi', replace: 'Hello!' },
-        { trigger: 'ok', replace: 'okey' },
-        { trigger: 'brb', replace: 'Be right back' },
-        { trigger: 'omw', replace: 'On my way' },
-        { trigger: 'thx', replace: 'Thanks!' },
-        { trigger: 'ty', replace: 'Thank you!' },
-        { trigger: 'np', replace: 'No problem!' },
-        { trigger: 'idk', replace: "I don't know" },
-        { trigger: 'btw', replace: 'By the way' },
-        { trigger: 'imo', replace: 'In my opinion' },
-        { trigger: 'afaik', replace: 'As far as I know' },
-        { trigger: ':mail', replace: 'ornek@email.com' },
-        { trigger: ':mymail', replace: 'benim@email.com' },
-        { trigger: '"1', replace: 'Owo h' },
-        { trigger: '"2', replace: 'Owo b' },
-        { trigger: '"3', replace: 'Owo' },
-        { trigger: '"4', replace: 'Owo pray' },
-        { trigger: ':tarih', replace: () => new Date().toLocaleDateString('tr-TR') },
-        { trigger: ':date', replace: () => new Date().toLocaleDateString('en-US') },
-        { trigger: ':saat', replace: () => new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) },
-        { trigger: ':time', replace: () => new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) },
-        { trigger: ':gun', replace: () => {
-                const days = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
-                return days[new Date().getDay()];
+            } catch (e) {
+                // Fall through
             }
-        },
-        { trigger: ':heart', replace: '❤️' },
-        { trigger: ':check', replace: '✓' },
-        { trigger: ':cross', replace: '✗' },
-    ];
 
-    const SETTINGS = {
-        wordBoundary: true,
-        debug: false,
-        debounceDelay: 0,
-    };
+            el.textContent = text;
+            moveCursorToEnd(el);
+        };
 
-    let processingReplace = false;
-    let debounceTimer = null;
-
-    function checkAndReplace() {
-        if (processingReplace) return;
-
-        const activeEl = UniversalTextSetter.getActiveEditableElement();
-        if (!activeEl) return;
-
-        const currentText = UniversalTextSetter.getText(activeEl);
-
-        if (SETTINGS.debug) {
-            console.log('[TextExpander] Checking text:', currentText);
-        }
-
-        const sortedTriggers = [...TRIGGERS].sort((a, b) => b.trigger.length - a.trigger.length);
-
-        for (const item of sortedTriggers) {
-            const trigger = item.trigger;
-
-            if (SETTINGS.wordBoundary) {
-                const regex = new RegExp(`(^|\\s)${escapeRegex(trigger)}$`);
-                if (regex.test(currentText)) {
-                    performReplace(activeEl, currentText, trigger, item.replace);
-                    return;
-                }
+        const setText = (el, text) => {
+            if (!el) return;
+            if (el.isContentEditable) {
+                setContentEditableText(el, text);
             } else {
-                if (currentText.endsWith(trigger)) {
-                    performReplace(activeEl, currentText, trigger, item.replace);
+                setInputText(el, text);
+            }
+        };
+
+        const hasSelection = (el) => {
+            if (!el) return false;
+            if (el.isContentEditable) {
+                const sel = window.getSelection();
+                return sel.rangeCount > 0 && !sel.getRangeAt(0).collapsed;
+            }
+            return el.selectionStart !== el.selectionEnd;
+        };
+
+        const isCursorAtEnd = (el) => {
+            if (!el) return false;
+            if (el.isContentEditable) {
+                const sel = window.getSelection();
+                if (!sel.rangeCount) return false;
+                const range = sel.getRangeAt(0);
+                if (!range.collapsed) return false;
+                const textLength = el.textContent.length;
+                const cursorPos = range.startOffset;
+                return cursorPos === textLength;
+            }
+            return el.selectionStart === el.value.length;
+        };
+
+        const clearSelection = (el) => {
+            if (!el) return;
+            if (el.isContentEditable) {
+                moveCursorToEnd(el);
+            } else {
+                try {
+                    el.setSelectionRange(el.value.length, el.value.length);
+                } catch (e) {
+                    // Ignore selection errors
+                }
+            }
+        };
+
+        return Object.freeze({
+            isEditable,
+            getActiveEditable,
+            getText,
+            setText,
+            hasSelection,
+            isCursorAtEnd,
+            clearSelection,
+        });
+    })();
+
+    /* ═══════════════════════════════════════════════════════════════════════════
+       ORIGINAL UNDO MANAGER (ORİJİNAL KODLAR - DOKUNULMADI)
+       ═══════════════════════════════════════════════════════════════════════════ */
+
+    const UndoManager = (() => {
+        const stacks = new WeakMap();
+        let lastAction = { element: null, afterText: null };
+
+        const getStack = (el) => {
+            if (!stacks.has(el)) {
+                stacks.set(el, { undo: [], redo: [] });
+            }
+            return stacks.get(el);
+        };
+
+        const push = (el, before, after) => {
+            const stack = getStack(el);
+            stack.undo.push({ before, after });
+            stack.redo = [];
+            lastAction = { element: el, afterText: after };
+        };
+
+        const undo = (el) => {
+            const stack = getStack(el);
+            const item = stack.undo.pop();
+            if (item) {
+                stack.redo.push(item);
+                return item.before;
+            }
+            return null;
+        };
+
+        const canUndo = (el) => getStack(el).undo.length > 0;
+        const canQuickUndo = (el, currentText) => {
+            return (
+                lastAction.element === el &&
+                lastAction.afterText === currentText &&
+                canUndo(el)
+            );
+        };
+
+        const clearQuickUndo = () => {
+            lastAction = { element: null, afterText: null };
+        };
+
+        return Object.freeze({ push, undo, canUndo, canQuickUndo, clearQuickUndo });
+    })();
+
+    /* ═══════════════════════════════════════════════════════════════════════════
+       EXPANDER ENGINE (Sadece Trigger Modu Aktif)
+       ═══════════════════════════════════════════════════════════════════════════ */
+
+    const ExpanderEngine = (() => {
+        let shouldSkip = false;
+        let debounceTimer = null;
+
+        const scheduleCheck = () => {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(check, 10);
+        };
+
+        const check = () => {
+            if (!ConfigManager.get('expander.enabled') || shouldSkip) {
+                shouldSkip = false;
+                return;
+            }
+
+            const element = DOMUtils.getActiveEditable();
+            if (!element || DOMUtils.hasSelection(element)) return;
+
+            const text = DOMUtils.getText(element);
+            if (!text) return;
+
+            // Sadece Triggerları kontrol ediyoruz (AI komutları kaldırıldı)
+            for (const trg of ConfigManager.getTriggerKeys()) {
+                const replacement = ConfigManager.get(`triggers.${trg}`);
+                if (text.endsWith(trg) && replacement !== undefined) {
+                    executeTrigger(element, text, trg, replacement);
                     return;
                 }
             }
-        }
-    }
+        };
 
-    function performReplace(element, currentText, trigger, replacement) {
-        processingReplace = true;
+        const executeTrigger = (element, text, trigger, replacement) => {
+            const result = text.slice(0, -trigger.length) + replacement;
+            UndoManager.push(element, text, result);
+            DOMUtils.setText(element, result);
+        };
 
-        const replaceText = typeof replacement === 'function' ? replacement() : replacement;
+        const skip = () => {
+            shouldSkip = true;
+        };
 
-        const newText = currentText.slice(0, -trigger.length) + replaceText;
+        return Object.freeze({
+            scheduleCheck,
+            skip,
+        });
+    })();
 
-        if (SETTINGS.debug) {
-            console.log('[TextExpander] Replacing:', trigger, '->', replaceText);
-        }
+    /* ═══════════════════════════════════════════════════════════════════════════
+       EVENT HANDLERS (ORİJİNAL INPUT LOGIC)
+       ═══════════════════════════════════════════════════════════════════════════ */
 
-        UniversalTextSetter.setText(element, newText);
+    const EventHandlers = (() => {
+        const onInput = (e) => {
+            const inputType = e.inputType;
 
-        setTimeout(() => {
-            processingReplace = false;
-        }, 100);
-    }
+            if (inputType === 'historyUndo' || inputType === 'historyRedo') {
+                requestAnimationFrame(() => {
+                    DOMUtils.clearSelection(DOMUtils.getActiveEditable());
+                });
+                ExpanderEngine.skip();
+                return;
+            }
 
-    function escapeRegex(str) {
-        return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    }
+            if (!inputType || /^(insert|delete)/.test(inputType)) {
+                ExpanderEngine.scheduleCheck();
+            }
+        };
 
-    document.addEventListener('input', (e) => {
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(() => {
-            checkAndReplace();
-        }, SETTINGS.debounceDelay);
-    }, true);
+        const onKeydown = (e) => {
+            const element = DOMUtils.getActiveEditable();
+            if (!element) return;
 
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') {
-            return;
-        }
+            if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
 
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(() => {
-            checkAndReplace();
-        }, SETTINGS.debounceDelay);
-    }, true);
+            // Backspace Undo
+            if (e.key === 'Backspace' && !DOMUtils.hasSelection(element) && DOMUtils.isCursorAtEnd(element)) {
+                const currentText = DOMUtils.getText(element);
+                if (UndoManager.canQuickUndo(element, currentText)) {
+                    e.preventDefault();
+                    const text = UndoManager.undo(element);
+                    if (text !== null) DOMUtils.setText(element, text);
+                    UndoManager.clearQuickUndo();
+                    ExpanderEngine.skip();
+                    return;
+                }
+            }
+
+            // Navigation keys
+            if (/^(Arrow|Home|End|Page)/.test(e.key)) {
+                ExpanderEngine.skip();
+                return;
+            }
+
+            ExpanderEngine.scheduleCheck();
+        };
+
+        const onMousedown = () => ExpanderEngine.skip();
+        const onFocusin = () => ExpanderEngine.skip();
+
+        return Object.freeze({
+            onInput,
+            onKeydown,
+            onMousedown,
+            onFocusin,
+        });
+    })();
+
+    /* ═══════════════════════════════════════════════════════════════════════════
+       INIT
+       ═══════════════════════════════════════════════════════════════════════════ */
+
+    const App = (() => {
+        const registerEventListeners = () => {
+            document.addEventListener('input', EventHandlers.onInput, true);
+            document.addEventListener('keydown', EventHandlers.onKeydown, true);
+            document.addEventListener('mousedown', EventHandlers.onMousedown, true);
+            document.addEventListener('focusin', EventHandlers.onFocusin, true);
+        };
+
+        const init = () => {
+            registerEventListeners();
+            console.log('%cExpander Engine Ready (Original)', 'color: #00ff00; font-weight: bold;');
+        };
+
+        return Object.freeze({ init });
+    })();
+
+    App.init();
 })();
