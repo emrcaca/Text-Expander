@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Text Expander
 // @namespace    https://github.com/emrcaca
-// @version      1.0.0
+// @version      1.1.0
 // @description  Basit metin genişletici.
 // @author       emrcaca
 // @match        *://*/*
@@ -18,12 +18,16 @@
     const CONSTANTS = Object.freeze({
         STORAGE_KEY: 'te_config',
         TIMING: {
-            SELECTION_DEBOUNCE: 200,
-            CLICK_THRESHOLD: 250,
+            DEBOUNCE_DELAY: 10,
         },
         EDITABLE_INPUT_TYPES: Object.freeze(
             new Set(['text', 'search', 'email', 'url', 'tel', 'password', 'number'])
         ),
+        MODIFIER_KEYS: Object.freeze(
+            new Set(['Control', 'Alt', 'Shift', 'Meta'])
+        ),
+        NAVIGATION_KEY_PATTERN: /^(Arrow|Home|End|Page)/,
+        INPUT_TYPE_PATTERN: /^(insert|delete)/,
     });
 
     const DEFAULT_CONFIG = Object.freeze({
@@ -41,23 +45,32 @@
     });
 
     /* ═══════════════════════════════════════════════════════════════════════════
-       CONFIGURATION MANAGER (Minimal)
+       UTILITIES
+       ═══════════════════════════════════════════════════════════════════════════ */
+
+    const Utils = (() => {
+        const deepClone = (obj) => JSON.parse(JSON.stringify(obj));
+        
+        const sortKeysByLength = (obj) =>
+            Object.keys(obj || {}).sort((a, b) => b.length - a.length);
+
+        return Object.freeze({ deepClone, sortKeysByLength });
+    })();
+
+    /* ═══════════════════════════════════════════════════════════════════════════
+       CONFIGURATION MANAGER
        ═══════════════════════════════════════════════════════════════════════════ */
 
     const ConfigManager = (() => {
         let config = null;
         let triggerKeys = [];
 
-        const deepClone = (obj) => JSON.parse(JSON.stringify(obj));
-        const sortKeysByLength = (obj) =>
-            Object.keys(obj || {}).sort((a, b) => b.length - a.length);
-
         const updateKeys = () => {
-            triggerKeys = sortKeysByLength(config.triggers);
+            triggerKeys = Utils.sortKeysByLength(config.triggers);
         };
 
         const load = () => {
-            config = deepClone(DEFAULT_CONFIG);
+            config = Utils.deepClone(DEFAULT_CONFIG);
             updateKeys();
         };
 
@@ -68,13 +81,13 @@
 
         const getTriggerKeys = () => triggerKeys;
 
-        load(); // Initialize
+        load();
 
         return Object.freeze({ get, getTriggerKeys });
     })();
 
     /* ═══════════════════════════════════════════════════════════════════════════
-       ORIGINAL DOM UTILITIES (ORİJİNAL KODLAR - DOKUNULMADI)
+       DOM UTILITIES (ORİJİNAL KODLAR - DOKUNULMADI)
        ═══════════════════════════════════════════════════════════════════════════ */
 
     const DOMUtils = (() => {
@@ -260,7 +273,7 @@
     })();
 
     /* ═══════════════════════════════════════════════════════════════════════════
-       ORIGINAL UNDO MANAGER (ORİJİNAL KODLAR - DOKUNULMADI)
+       UNDO MANAGER (ORİJİNAL KODLAR - DOKUNULMADI)
        ═══════════════════════════════════════════════════════════════════════════ */
 
     const UndoManager = (() => {
@@ -292,13 +305,11 @@
         };
 
         const canUndo = (el) => getStack(el).undo.length > 0;
-        const canQuickUndo = (el, currentText) => {
-            return (
-                lastAction.element === el &&
-                lastAction.afterText === currentText &&
-                canUndo(el)
-            );
-        };
+        
+        const canQuickUndo = (el, currentText) => 
+            lastAction.element === el &&
+            lastAction.afterText === currentText &&
+            canUndo(el);
 
         const clearQuickUndo = () => {
             lastAction = { element: null, afterText: null };
@@ -308,38 +319,30 @@
     })();
 
     /* ═══════════════════════════════════════════════════════════════════════════
-       EXPANDER ENGINE (Sadece Trigger Modu Aktif)
+       EXPANDER ENGINE
        ═══════════════════════════════════════════════════════════════════════════ */
 
     const ExpanderEngine = (() => {
         let shouldSkip = false;
         let debounceTimer = null;
 
-        const scheduleCheck = () => {
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(check, 10);
+        const isValidForExpansion = (element, text) => {
+            if (!ConfigManager.get('expander.enabled') || shouldSkip) {
+                return false;
+            }
+            return element && !DOMUtils.hasSelection(element) && text;
         };
 
-        const check = () => {
-            if (!ConfigManager.get('expander.enabled') || shouldSkip) {
-                shouldSkip = false;
-                return;
-            }
-
-            const element = DOMUtils.getActiveEditable();
-            if (!element || DOMUtils.hasSelection(element)) return;
-
-            const text = DOMUtils.getText(element);
-            if (!text) return;
-
-            // Sadece Triggerları kontrol ediyoruz (AI komutları kaldırıldı)
-            for (const trg of ConfigManager.getTriggerKeys()) {
-                const replacement = ConfigManager.get(`triggers.${trg}`);
-                if (text.endsWith(trg) && replacement !== undefined) {
-                    executeTrigger(element, text, trg, replacement);
-                    return;
+        const findMatchingTrigger = (text) => {
+            for (const trigger of ConfigManager.getTriggerKeys()) {
+                if (text.endsWith(trigger)) {
+                    const replacement = ConfigManager.get(`triggers.${trigger}`);
+                    if (replacement !== undefined) {
+                        return { trigger, replacement };
+                    }
                 }
             }
+            return null;
         };
 
         const executeTrigger = (element, text, trigger, replacement) => {
@@ -348,58 +351,99 @@
             DOMUtils.setText(element, result);
         };
 
+        const performCheck = () => {
+            if (shouldSkip) {
+                shouldSkip = false;
+                return;
+            }
+
+            const element = DOMUtils.getActiveEditable();
+            const text = DOMUtils.getText(element);
+
+            if (!isValidForExpansion(element, text)) {
+                return;
+            }
+
+            const match = findMatchingTrigger(text);
+            if (match) {
+                executeTrigger(element, text, match.trigger, match.replacement);
+            }
+        };
+
+        const scheduleCheck = () => {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(performCheck, CONSTANTS.TIMING.DEBOUNCE_DELAY);
+        };
+
         const skip = () => {
             shouldSkip = true;
         };
 
-        return Object.freeze({
-            scheduleCheck,
-            skip,
-        });
+        return Object.freeze({ scheduleCheck, skip });
     })();
 
     /* ═══════════════════════════════════════════════════════════════════════════
-       EVENT HANDLERS (ORİJİNAL INPUT LOGIC)
+       EVENT HANDLERS
        ═══════════════════════════════════════════════════════════════════════════ */
 
     const EventHandlers = (() => {
-        const onInput = (e) => {
-            const inputType = e.inputType;
+        const isHistoryAction = (inputType) => 
+            inputType === 'historyUndo' || inputType === 'historyRedo';
 
-            if (inputType === 'historyUndo' || inputType === 'historyRedo') {
-                requestAnimationFrame(() => {
-                    DOMUtils.clearSelection(DOMUtils.getActiveEditable());
-                });
-                ExpanderEngine.skip();
+        const isTextModification = (inputType) =>
+            !inputType || CONSTANTS.INPUT_TYPE_PATTERN.test(inputType);
+
+        const handleHistoryAction = () => {
+            requestAnimationFrame(() => {
+                DOMUtils.clearSelection(DOMUtils.getActiveEditable());
+            });
+            ExpanderEngine.skip();
+        };
+
+        const onInput = (e) => {
+            if (isHistoryAction(e.inputType)) {
+                handleHistoryAction();
                 return;
             }
 
-            if (!inputType || /^(insert|delete)/.test(inputType)) {
+            if (isTextModification(e.inputType)) {
                 ExpanderEngine.scheduleCheck();
             }
+        };
+
+        const handleBackspaceUndo = (element, e) => {
+            const hasNoSelection = !DOMUtils.hasSelection(element);
+            const cursorAtEnd = DOMUtils.isCursorAtEnd(element);
+            
+            if (!hasNoSelection || !cursorAtEnd) {
+                return false;
+            }
+
+            const currentText = DOMUtils.getText(element);
+            if (UndoManager.canQuickUndo(element, currentText)) {
+                e.preventDefault();
+                const text = UndoManager.undo(element);
+                if (text !== null) {
+                    DOMUtils.setText(element, text);
+                }
+                UndoManager.clearQuickUndo();
+                ExpanderEngine.skip();
+                return true;
+            }
+            return false;
         };
 
         const onKeydown = (e) => {
             const element = DOMUtils.getActiveEditable();
             if (!element) return;
 
-            if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
+            if (CONSTANTS.MODIFIER_KEYS.has(e.key)) return;
 
-            // Backspace Undo
-            if (e.key === 'Backspace' && !DOMUtils.hasSelection(element) && DOMUtils.isCursorAtEnd(element)) {
-                const currentText = DOMUtils.getText(element);
-                if (UndoManager.canQuickUndo(element, currentText)) {
-                    e.preventDefault();
-                    const text = UndoManager.undo(element);
-                    if (text !== null) DOMUtils.setText(element, text);
-                    UndoManager.clearQuickUndo();
-                    ExpanderEngine.skip();
-                    return;
-                }
+            if (e.key === 'Backspace' && handleBackspaceUndo(element, e)) {
+                return;
             }
 
-            // Navigation keys
-            if (/^(Arrow|Home|End|Page)/.test(e.key)) {
+            if (CONSTANTS.NAVIGATION_KEY_PATTERN.test(e.key)) {
                 ExpanderEngine.skip();
                 return;
             }
@@ -419,20 +463,31 @@
     })();
 
     /* ═══════════════════════════════════════════════════════════════════════════
-       INIT
+       APPLICATION
        ═══════════════════════════════════════════════════════════════════════════ */
 
     const App = (() => {
+        const EVENT_OPTIONS = { capture: true };
+
+        const eventBindings = [
+            ['input', EventHandlers.onInput],
+            ['keydown', EventHandlers.onKeydown],
+            ['mousedown', EventHandlers.onMousedown],
+            ['focusin', EventHandlers.onFocusin],
+        ];
+
         const registerEventListeners = () => {
-            document.addEventListener('input', EventHandlers.onInput, true);
-            document.addEventListener('keydown', EventHandlers.onKeydown, true);
-            document.addEventListener('mousedown', EventHandlers.onMousedown, true);
-            document.addEventListener('focusin', EventHandlers.onFocusin, true);
+            eventBindings.forEach(([event, handler]) => {
+                document.addEventListener(event, handler, EVENT_OPTIONS);
+            });
         };
 
         const init = () => {
             registerEventListeners();
-            console.log('%cExpander Engine Ready (Original)', 'color: #00ff00; font-weight: bold;');
+            console.log(
+                '%cText Expander Ready',
+                'color: #00ff00; font-weight: bold; font-size: 12px;'
+            );
         };
 
         return Object.freeze({ init });
