@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Text Expander
 // @namespace    https://github.com/emrcaca
-// @version      1.1.0
+// @version      1.2.0
 // @description  Basit metin genişletici.
 // @author       emrcaca
 // @match        *://*/*
@@ -11,14 +11,11 @@
 (function () {
     'use strict';
 
-    /* ═══════════════════════════════════════════════════════════════════════════
-       CONSTANTS & CONFIG
-       ═══════════════════════════════════════════════════════════════════════════ */
-
     const CONSTANTS = Object.freeze({
         STORAGE_KEY: 'te_config',
         TIMING: {
-            DEBOUNCE_DELAY: 10,
+            DEBOUNCE_DELAY: 0,
+            FOCUS_DELAY: 100,
         },
         EDITABLE_INPUT_TYPES: Object.freeze(
             new Set(['text', 'search', 'email', 'url', 'tel', 'password', 'number'])
@@ -44,10 +41,6 @@
         }),
     });
 
-    /* ═══════════════════════════════════════════════════════════════════════════
-       UTILITIES
-       ═══════════════════════════════════════════════════════════════════════════ */
-
     const Utils = (() => {
         const deepClone = (obj) => JSON.parse(JSON.stringify(obj));
         
@@ -56,10 +49,6 @@
 
         return Object.freeze({ deepClone, sortKeysByLength });
     })();
-
-    /* ═══════════════════════════════════════════════════════════════════════════
-       CONFIGURATION MANAGER
-       ═══════════════════════════════════════════════════════════════════════════ */
 
     const ConfigManager = (() => {
         let config = null;
@@ -85,10 +74,6 @@
 
         return Object.freeze({ get, getTriggerKeys });
     })();
-
-    /* ═══════════════════════════════════════════════════════════════════════════
-       DOM UTILITIES (ORİJİNAL KODLAR - DOKUNULMADI)
-       ═══════════════════════════════════════════════════════════════════════════ */
 
     const DOMUtils = (() => {
         const inputSetter = Object.getOwnPropertyDescriptor(
@@ -132,7 +117,7 @@
                     range.collapse(false);
                     sel.addRange(range);
                 } catch (e) {
-                    // Ignore cursor errors
+                  //
                 }
             });
         };
@@ -162,7 +147,7 @@
             try {
                 el.setSelectionRange?.(text.length, text.length);
             } catch (e) {
-                // Ignore selection errors
+              //
             }
         };
 
@@ -196,7 +181,7 @@
                 moveCursorToEnd(el);
                 return;
             } catch (e) {
-                // Fall through
+              //
             }
 
             try {
@@ -209,7 +194,7 @@
                     return;
                 }
             } catch (e) {
-                // Fall through
+              //
             }
 
             el.textContent = text;
@@ -256,7 +241,7 @@
                 try {
                     el.setSelectionRange(el.value.length, el.value.length);
                 } catch (e) {
-                    // Ignore selection errors
+                  //
                 }
             }
         };
@@ -271,10 +256,6 @@
             clearSelection,
         });
     })();
-
-    /* ═══════════════════════════════════════════════════════════════════════════
-       UNDO MANAGER (ORİJİNAL KODLAR - DOKUNULMADI)
-       ═══════════════════════════════════════════════════════════════════════════ */
 
     const UndoManager = (() => {
         const stacks = new WeakMap();
@@ -318,18 +299,22 @@
         return Object.freeze({ push, undo, canUndo, canQuickUndo, clearQuickUndo });
     })();
 
-    /* ═══════════════════════════════════════════════════════════════════════════
-       EXPANDER ENGINE
-       ═══════════════════════════════════════════════════════════════════════════ */
-
     const ExpanderEngine = (() => {
         let shouldSkip = false;
         let debounceTimer = null;
+        let lastProcessedText = '';
+        let lastProcessedElement = null;
+        let isExpanding = false;
 
         const isValidForExpansion = (element, text) => {
-            if (!ConfigManager.get('expander.enabled') || shouldSkip) {
+            if (!ConfigManager.get('expander.enabled') || shouldSkip || isExpanding) {
                 return false;
             }
+            
+            if (element === lastProcessedElement && text === lastProcessedText) {
+                return false;
+            }
+            
             return element && !DOMUtils.hasSelection(element) && text;
         };
 
@@ -346,9 +331,20 @@
         };
 
         const executeTrigger = (element, text, trigger, replacement) => {
+            isExpanding = true;
+            
             const result = text.slice(0, -trigger.length) + replacement;
+            
+            lastProcessedElement = element;
+            lastProcessedText = result;
+            
             UndoManager.push(element, text, result);
             DOMUtils.setText(element, result);
+            
+            requestAnimationFrame(() => {
+                DOMUtils.clearSelection(element);
+                isExpanding = false;
+            });
         };
 
         const performCheck = () => {
@@ -367,6 +363,9 @@
             const match = findMatchingTrigger(text);
             if (match) {
                 executeTrigger(element, text, match.trigger, match.replacement);
+            } else {
+                lastProcessedElement = element;
+                lastProcessedText = text;
             }
         };
 
@@ -377,14 +376,19 @@
 
         const skip = () => {
             shouldSkip = true;
+            clearTimeout(debounceTimer);
         };
 
-        return Object.freeze({ scheduleCheck, skip });
-    })();
+        const reset = () => {
+            lastProcessedText = '';
+            lastProcessedElement = null;
+            shouldSkip = false;
+            isExpanding = false;
+            clearTimeout(debounceTimer);
+        };
 
-    /* ═══════════════════════════════════════════════════════════════════════════
-       EVENT HANDLERS
-       ═══════════════════════════════════════════════════════════════════════════ */
+        return Object.freeze({ scheduleCheck, skip, reset });
+    })();
 
     const EventHandlers = (() => {
         const isHistoryAction = (inputType) => 
@@ -452,19 +456,27 @@
         };
 
         const onMousedown = () => ExpanderEngine.skip();
-        const onFocusin = () => ExpanderEngine.skip();
+        
+        const onFocusin = () => {
+            ExpanderEngine.reset();
+        };
+
+        const onVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                setTimeout(() => {
+                    ExpanderEngine.reset();
+                }, CONSTANTS.TIMING.FOCUS_DELAY);
+            }
+        };
 
         return Object.freeze({
             onInput,
             onKeydown,
             onMousedown,
             onFocusin,
+            onVisibilityChange,
         });
     })();
-
-    /* ═══════════════════════════════════════════════════════════════════════════
-       APPLICATION
-       ═══════════════════════════════════════════════════════════════════════════ */
 
     const App = (() => {
         const EVENT_OPTIONS = { capture: true };
@@ -480,12 +492,14 @@
             eventBindings.forEach(([event, handler]) => {
                 document.addEventListener(event, handler, EVENT_OPTIONS);
             });
+            
+            document.addEventListener('visibilitychange', EventHandlers.onVisibilityChange);
         };
 
         const init = () => {
             registerEventListeners();
             console.log(
-                '%cText Expander Ready',
+                '%cText Expander Ready v1.2.0',
                 'color: #00ff00; font-weight: bold; font-size: 12px;'
             );
         };
